@@ -17,6 +17,9 @@ interface State {
 	jump: Skill;
 	speed: Skill;
 	score: number;
+	player: {
+		isRight: boolean;
+	};
 }
 
 interface UI {
@@ -24,6 +27,33 @@ interface UI {
 	speed: Phaser.GameObjects.Text;
 	star: Phaser.Types.Physics.Arcade.SpriteWithStaticBody;
 	score: Phaser.GameObjects.Text;
+}
+
+class Bullet extends Phaser.Physics.Arcade.Sprite {
+	speed: number = 1000;
+
+	constructor(scene: Phaser.Scene, x: number, y: number) {
+		super(scene, x, y, "bomb");
+		scene.add.existing(this);
+		scene.physics.add.existing(this);
+		this.setCollideWorldBounds(true);
+	}
+
+	fire(x, y, targetX, targetY) {
+		const angle = Phaser.Math.Angle.Between(x, y, targetX, targetY);
+
+		this.setVelocity(
+			Math.cos(angle) * this.speed,
+			Math.sin(angle) * this.speed
+		);
+	}
+
+	update() {
+		if (this.body?.onWorldBounds) {
+			this.destroy();
+			console.log("bullet has destryed out the world");
+		}
+	}
 }
 
 export class Game extends Phaser.Scene {
@@ -36,7 +66,7 @@ export class Game extends Phaser.Scene {
 	platforms: Phaser.Physics.Arcade.StaticGroup;
 	stars: Phaser.Physics.Arcade.Group;
 	bombs: Phaser.Physics.Arcade.Group;
-
+	bullets: Phaser.Physics.Arcade.Group;
 	ui: UI;
 
 	state: State = {
@@ -49,21 +79,10 @@ export class Game extends Phaser.Scene {
 			level: 1,
 		},
 		score: 0,
+		player: {
+			isRight: true,
+		},
 	};
-
-	init() {
-		this.state = {
-			jump: {
-				value: 500,
-				level: 1,
-			},
-			speed: {
-				value: 100,
-				level: 1,
-			},
-			score: 0,
-		};
-	}
 
 	preload() {
 		this.load.image("sky", "assets/sky.png");
@@ -77,7 +96,7 @@ export class Game extends Phaser.Scene {
 	}
 
 	create() {
-		this.add.image(0, 0, "sky").setOrigin(0, 0);
+		this.add.image(400, 300, "sky");
 
 		this.platforms = this.physics.add.staticGroup();
 		this.platforms.create(400, 568, "ground").setScale(2).refreshBody();
@@ -164,6 +183,15 @@ export class Game extends Phaser.Scene {
 
 		this.bombs = this.physics.add.group();
 
+		this.bullets = this.physics.add.group({
+			classType: Bullet,
+			runChildUpdate: true,
+		});
+
+		this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
+			this.playerShoot(pointer.worldX, pointer.worldY);
+		});
+
 		this.physics.add.collider(this.platforms, this.bombs);
 		this.physics.add.collider(
 			this.player,
@@ -172,6 +200,22 @@ export class Game extends Phaser.Scene {
 			undefined,
 			this
 		);
+
+		this.physics.add.collider(this.bullets, this.platforms, (bullet, _) =>
+			bullet.destroy()
+		);
+	}
+
+	playerShoot(x: number, y: number) {
+		const bullet = this.bullets.get(this.player.x, this.player.y);
+
+		if (bullet) {
+			bullet.fire(this.player.x, this.player.y, x, y);
+
+			this.time.delayedCall(2000, () => {
+				bullet.destroy();
+			});
+		}
 	}
 
 	private buttonGenerator(x, y, text, callback, context = this) {
@@ -253,9 +297,11 @@ export class Game extends Phaser.Scene {
 		if (this.cursors?.A.isDown) {
 			this.player.setVelocityX(-this.state.speed.value);
 			this.player.anims.play("left", true);
+			this.state.player.isRight = false;
 		} else if (this.cursors?.D.isDown) {
 			this.player.setVelocityX(this.state.speed.value);
 			this.player.anims.play("right", true);
+			this.state.player.isRight = true;
 		} else {
 			this.player.setVelocityX(0);
 			this.player.anims.play("turn");
