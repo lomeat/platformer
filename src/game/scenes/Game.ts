@@ -17,8 +17,10 @@ interface State {
 	jump: Skill;
 	speed: Skill;
 	score: number;
+	maxScore: number;
 	player: {
 		isRight: boolean;
+		isDead: boolean;
 	};
 }
 
@@ -27,7 +29,13 @@ interface UI {
 	speed: Phaser.GameObjects.Text;
 	star: Phaser.Types.Physics.Arcade.SpriteWithStaticBody;
 	score: Phaser.GameObjects.Text;
+	maxScore: Phaser.GameObjects.Text;
 }
+
+const skillsPrice = {
+	jump: [2, 2, 4, 8, 12],
+	speed: [4, 6, 10, 12, 16],
+};
 
 class Bullet extends Phaser.Physics.Arcade.Sprite {
 	speed: number = 1000;
@@ -69,20 +77,26 @@ export class Game extends Phaser.Scene {
 	bullets: Phaser.Physics.Arcade.Group;
 	ui: UI;
 
-	state: State = {
-		jump: {
-			value: 500,
-			level: 1,
-		},
-		speed: {
-			value: 100,
-			level: 1,
-		},
-		score: 0,
-		player: {
-			isRight: true,
-		},
-	};
+	state: State;
+
+	init() {
+		this.state = {
+			jump: {
+				value: 500,
+				level: 1,
+			},
+			speed: {
+				value: 100,
+				level: 1,
+			},
+			score: 0,
+			maxScore: 0,
+			player: {
+				isRight: true,
+				isDead: false,
+			},
+		};
+	}
 
 	preload() {
 		this.load.image("sky", "assets/sky.png");
@@ -114,6 +128,19 @@ export class Game extends Phaser.Scene {
 				fontSize: "32px",
 				color: "#fff",
 			}),
+			maxScore: this.add
+				.text(
+					this.cameras.main.worldView.x + this.cameras.main.width / 2,
+					this.cameras.main.worldView.y + this.cameras.main.height / 2,
+					`Score: ${this.state.maxScore}`,
+					{
+						fontSize: "60px",
+						color: "#fff",
+						backgroundColor: "black",
+					}
+				)
+				.setOrigin(0.5)
+				.setVisible(this.state.player.isDead),
 			star: this.physics.add
 				.staticSprite(30, 570, "star")
 				.setTint(0xff0000)
@@ -122,15 +149,19 @@ export class Game extends Phaser.Scene {
 			jump: this.buttonGenerator(
 				200,
 				540,
-				`Jump: ${this.state.jump.level}`,
-				this.jumpButtonClick,
+				`Jump: ${this.state.jump.level} (${
+					skillsPrice.jump[this.state.jump.level - 1]
+				})`,
+				() => this.upgradeClick("jump"),
 				this
 			),
 			speed: this.buttonGenerator(
 				200,
 				570,
-				`Speed: ${this.state.speed.level}`,
-				this.speedButtonClick,
+				`Speed: ${this.state.speed.level} (${
+					skillsPrice.speed[this.state.speed.level - 1]
+				})`,
+				() => this.upgradeClick("speed"),
 				this
 			),
 		};
@@ -201,9 +232,16 @@ export class Game extends Phaser.Scene {
 			this
 		);
 
+		this.physics.add.collider(this.bullets, this.bombs, this.shootBomb);
+
 		this.physics.add.collider(this.bullets, this.platforms, (bullet, _) =>
 			bullet.destroy()
 		);
+	}
+
+	shootBomb(bullet, bomb) {
+		bomb.body.destroy();
+		bomb.body.disable();
 	}
 
 	playerShoot(x: number, y: number) {
@@ -239,35 +277,33 @@ export class Game extends Phaser.Scene {
 		return a;
 	}
 
-	jumpButtonClick() {
-		if (this.state.score - 2 >= 0) {
-			this.state.score -= 2;
-			this.state.jump.level += 1;
-			this.state.jump.value += 100;
-			this.ui.score.setText(`x${this.state.score}`);
-			this.ui.jump.setText(`Jump: ${this.state.jump.level}`);
-		}
-	}
+	upgradeClick(key: "jump" | "speed") {
+		const newScore =
+			this.state.score - skillsPrice[key][this.state[key].level - 1];
+		const maxLevel = skillsPrice[key].length;
 
-	speedButtonClick() {
-		if (this.state.score - 4 >= 0) {
-			this.state.score -= 4;
-			this.state.speed.level += 1;
-			this.state.speed.value += 100;
+		if (newScore >= 0 && this.state[key].level <= maxLevel) {
+			this.state.score -= skillsPrice[key][this.state[key].level - 1];
+			this.state[key].level += 1;
+			this.state[key].value += 100;
 			this.ui.score.setText(`x${this.state.score}`);
-			this.ui.speed.setText(`Speed: ${this.state.speed.level}`);
+			this.ui[key].setText(
+				`${key.toUpperCase()}: ${this.state[key].level} (${
+					skillsPrice[key][this.state[key].level - 1]
+				})`
+			);
 		}
 	}
 
 	hitBomb(player, bomb) {
 		this.physics.pause();
-		player.setTint(0x000000);
-		player.anims.play("turn");
+		this.state.player.isDead = true;
 	}
 
 	collectStar(player, star) {
 		star.disableBody(true, true);
 		this.state.score += 1;
+		this.state.maxScore += 1;
 		this.ui.score.setText(`x${this.state.score}`);
 
 		if (this.stars.countActive() === 0) {
@@ -309,6 +345,12 @@ export class Game extends Phaser.Scene {
 
 		if (this.cursors?.R.isDown) {
 			this.scene.restart();
+		}
+
+		if (this.state.player.isDead) {
+			this.player.anims.stop();
+			this.player.setTint(0x000000);
+			this.ui.maxScore.setVisible(true);
 		}
 
 		if (this.cursors?.W.isDown && this.player.body.touching.down) {
